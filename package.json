@@ -1,0 +1,22 @@
+{
+  "name": "todo-bot-proxy",
+  "version": "1.0.0",
+  "description": "Telegram Todo Bot Proxy Server",
+  "main": "todo-bot-proxy.js",
+  "scripts": {
+    "start": "node todo-bot-proxy.js",
+    "dev": "nodemon todo-bot-proxy.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "node-fetch": "^2.7.0",
+    "node-telegram-bot-api": "^0.64.0",
+    "node-schedule": "^2.1.1"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "keywords": ["telegram", "bot", "todo", "proxy"],
+  "author": "Your Name",
+  "license": "MIT"
+} 
