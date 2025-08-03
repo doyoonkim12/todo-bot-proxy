@@ -24,7 +24,7 @@ app.use((req, res, next) => {
 app.use(express.text({ type: 'text/plain' }));
 app.use(express.json());
 
-const GAS_URL = 'https://script.google.com/macros/s/AKfycbzulHuC7pi0PUHUx0jxgpAlwLWitSFbycG0TD6TQ9TA4UmG_RYr2dzl-n-Rf_7ckg/exec';
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbyr_lN2QblIPP_PQF9wLF5Gs9s7AFbWTXDvMQQ_AySdiAOxlrE6TMItmsvDMRTxHh-6/exec';
 
 // 자동 알림 스케줄러
 // 매일 오전 11시 - 오늘 할일 알림
@@ -34,8 +34,8 @@ schedule.scheduleJob('0 11 * * *', async () => {
   await sendDailyTodoReminder();
 });
 
-// 매 5분마다 - 시간별 알림 체크
-schedule.scheduleJob('*/5 * * * *', async () => {
+// 매 1분마다 - 시간별 알림 체크 (더 정확한 알림을 위해)
+schedule.scheduleJob('* * * * *', async () => {
   await checkTimeBasedReminders();
 });
 
@@ -89,28 +89,55 @@ async function sendDailyTodoReminder() {
   }
 }
 
+// 알림 중복 방지용 Map
+const sentReminders = new Map();
+
 // 시간별 알림 체크
 async function checkTimeBasedReminders() {
   try {
     const now = new Date();
     const currentTime = now.getHours() * 60 + now.getMinutes(); // 현재 시간을 분으로 변환
+    const timeKey = `${now.getHours()}:${now.getMinutes()}`;
+    
+    console.log(`🔍 [${now.toLocaleString('ko-KR')}] 시간별 알림 체크 시작 - 현재 시간: ${currentTime}분`);
     
     // 오늘 할일 목록 가져오기
     const result = await callGAS('getTodoListForReminders', {});
-    if (!result || !result.success || !result.data) return;
+    if (!result || !result.success || !result.data) {
+      console.log('📝 오늘 할일이 없거나 조회 실패');
+      return;
+    }
     
     const todos = result.data;
+    console.log(`📋 오늘 할일 ${todos.length}개 확인됨`);
     
     todos.forEach(todo => {
       const todoTime = parseTimeToMinutes(todo.time);
       const timeDiff = todoTime - currentTime;
       
+      console.log(`⏰ 할일: "${todo.task}" - 예정시간: ${todo.time}(${todoTime}분), 차이: ${timeDiff}분`);
+      
       // 알림 시간 체크 (1시간전, 30분전, 10분전, 5분전, 정시)
       const reminderTimes = [60, 30, 10, 5, 0];
       
       reminderTimes.forEach(reminderTime => {
-        if (timeDiff === reminderTime) {
-          sendTimeBasedReminder(todo, reminderTime);
+        // 정확한 시간이거나 1분 이내 오차 허용
+        if (Math.abs(timeDiff - reminderTime) <= 1) {
+          const reminderKey = `${todo.task}_${reminderTime}_${now.toDateString()}`;
+          
+          // 중복 알림 방지
+          if (!sentReminders.has(reminderKey)) {
+            console.log(`🔔 알림 전송: "${todo.task}" ${reminderTime}분 전 알림`);
+            sendTimeBasedReminder(todo, reminderTime);
+            sentReminders.set(reminderKey, true);
+            
+            // 1시간 후 키 삭제 (메모리 정리)
+            setTimeout(() => {
+              sentReminders.delete(reminderKey);
+            }, 60 * 60 * 1000);
+          } else {
+            console.log(`⚠️ 중복 알림 방지: "${todo.task}" ${reminderTime}분 전 알림 이미 전송됨`);
+          }
         }
       });
     });
@@ -163,6 +190,30 @@ app.post('/webhook', async (req, res) => {
       
       console.log('📱 텔레그램 메시지:', message);
       
+      // 특별 명령어 처리
+      if (message === '알림테스트') {
+        await testReminders();
+        await bot.sendMessage(chatId, '🧪 알림 테스트가 실행되었습니다. 로그를 확인해주세요.');
+        res.sendStatus(200);
+        return;
+      }
+      
+      if (message === '할일확인') {
+        const result = await callGAS('getTodoListForReminders', {});
+        if (result && result.success && result.data) {
+          const todos = result.data;
+          let response = `📋 오늘 할일 ${todos.length}개:\n\n`;
+          todos.forEach(todo => {
+            response += `⏰ ${todo.time} - ${todo.task}\n`;
+          });
+          await bot.sendMessage(chatId, response);
+        } else {
+          await bot.sendMessage(chatId, '📝 오늘 할일이 없습니다.');
+        }
+        res.sendStatus(200);
+        return;
+      }
+      
       // GAS로 메시지 전달
       const result = await callGAS('processTelegramMessage', {
         message: message,
@@ -182,6 +233,17 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
+// 알림 테스트 함수
+async function testReminders() {
+  console.log('🧪 알림 테스트 시작');
+  try {
+    await checkTimeBasedReminders();
+    console.log('✅ 알림 테스트 완료');
+  } catch (err) {
+    console.error('❌ 알림 테스트 오류:', err);
+  }
+}
+
 // 서버 시작
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
@@ -197,4 +259,3 @@ process.on('unhandledRejection', (reason, promise) => {
 process.on('uncaughtException', (error) => {
   console.error('❌ 처리되지 않은 예외:', error);
 }); 
-
