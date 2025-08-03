@@ -197,3 +197,4 @@ process.on('unhandledRejection', (reason, promise) => {
 process.on('uncaughtException', (error) => {
   console.error('❌ 처리되지 않은 예외:', error);
 }); 
+
