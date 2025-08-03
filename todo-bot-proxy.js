@@ -24,7 +24,7 @@ app.use((req, res, next) => {
 app.use(express.text({ type: 'text/plain' }));
 app.use(express.json());
 
-const GAS_URL = 'https://script.google.com/macros/s/AKfycbyr_lN2QblIPP_PQF9wLF5Gs9s7AFbWTXDvMQQ_AySdiAOxlrE6TMItmsvDMRTxHh-6/exec';
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbzulHuC7pi0PUHUx0jxgpAlwLWitSFbycG0TD6TQ9TA4UmG_RYr2dzl-n-Rf_7ckg/exec';
 
 // 자동 알림 스케줄러
 // 매일 오전 11시 - 오늘 할일 알림
