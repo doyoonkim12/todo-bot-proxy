@@ -179,51 +179,71 @@ function parseTimeToMinutes(timeStr) {
   return 0;
 }
 
+// 텔레그램 메시지 처리 함수 (웹훅과 Polling 공용)
+async function handleTelegramMessage(msg) {
+  try {
+    if (!msg || !msg.text) return;
+    
+    const message = msg.text.trim();
+    const chatId = msg.chat.id;
+    
+    console.log('📱 텔레그램 메시지:', message, '채팅ID:', chatId);
+    
+    // 특별 명령어 처리
+    if (message === '알림테스트') {
+      await testReminders();
+      await bot.sendMessage(chatId, '🧪 알림 테스트가 실행되었습니다. 로그를 확인해주세요.');
+      return;
+    }
+    
+    if (message === '할일확인') {
+      const result = await callGAS('getTodoListForReminders', {});
+      if (result && result.success && result.data) {
+        const todos = result.data;
+        let response = `📋 오늘 할일 ${todos.length}개:\n\n`;
+        todos.forEach(todo => {
+          response += `⏰ ${todo.time} - ${todo.task}\n`;
+        });
+        await bot.sendMessage(chatId, response);
+      } else {
+        await bot.sendMessage(chatId, '📝 오늘 할일이 없습니다.');
+      }
+      return;
+    }
+    
+    // 채팅 ID 확인
+    if (message === '채팅아이디' || message === 'chatid') {
+      await bot.sendMessage(chatId, `📋 현재 채팅 ID: ${chatId}`);
+      return;
+    }
+    
+    // GAS로 메시지 전달
+    console.log('📡 GAS로 메시지 전달:', message);
+    const result = await callGAS('processTelegramMessage', {
+      message: message,
+      chatId: chatId
+    });
+    
+    if (result && result.success && result.response) {
+      // 응답을 텔레그램으로 전송
+      await bot.sendMessage(chatId, result.response);
+      console.log('✅ 응답 전송 완료:', result.response);
+    } else {
+      console.log('❌ GAS 응답 없음:', result);
+    }
+    
+  } catch (error) {
+    console.error('❌ 메시지 처리 오류:', error);
+  }
+}
+
 // 텔레그램 웹훅 처리
 app.post('/webhook', async (req, res) => {
   try {
     const update = req.body;
     
     if (update.message && update.message.text) {
-      const message = update.message.text.trim();
-      const chatId = update.message.chat.id;
-      
-      console.log('📱 텔레그램 메시지:', message);
-      
-      // 특별 명령어 처리
-      if (message === '알림테스트') {
-        await testReminders();
-        await bot.sendMessage(chatId, '🧪 알림 테스트가 실행되었습니다. 로그를 확인해주세요.');
-        res.sendStatus(200);
-        return;
-      }
-      
-      if (message === '할일확인') {
-        const result = await callGAS('getTodoListForReminders', {});
-        if (result && result.success && result.data) {
-          const todos = result.data;
-          let response = `📋 오늘 할일 ${todos.length}개:\n\n`;
-          todos.forEach(todo => {
-            response += `⏰ ${todo.time} - ${todo.task}\n`;
-          });
-          await bot.sendMessage(chatId, response);
-        } else {
-          await bot.sendMessage(chatId, '📝 오늘 할일이 없습니다.');
-        }
-        res.sendStatus(200);
-        return;
-      }
-      
-      // GAS로 메시지 전달
-      const result = await callGAS('processTelegramMessage', {
-        message: message,
-        chatId: chatId
-      });
-      
-      if (result && result.success && result.response) {
-        // 응답을 텔레그램으로 전송
-        await bot.sendMessage(chatId, result.response);
-      }
+      await handleTelegramMessage(update.message);
     }
     
     res.sendStatus(200);
@@ -246,9 +266,34 @@ async function testReminders() {
 
 // 서버 시작
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`🤖 할일 관리 봇 서버가 포트 ${PORT}에서 시작되었습니다.`);
   console.log(`⏰ 한국 시간: ${new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}`);
+  
+  // 웹훅 설정 (Production 환경에서만)
+  if (process.env.NODE_ENV === 'production') {
+    const webhookUrl = 'https://todo-bot-proxy.onrender.com/webhook';
+    try {
+      await bot.setWebHook(webhookUrl);
+      console.log('✅ 텔레그램 웹훅 설정 완료:', webhookUrl);
+    } catch (error) {
+      console.error('❌ 웹훅 설정 실패:', error);
+      // 웹훅 실패 시 Polling 모드로 백업
+      try {
+        await bot.deleteWebHook();
+        bot.startPolling();
+        bot.on('message', handleTelegramMessage);
+        console.log('✅ Polling 백업 모드 활성화');
+      } catch (pollingError) {
+        console.error('❌ Polling 백업 모드도 실패:', pollingError);
+      }
+    }
+  } else {
+    // 개발 환경에서는 Polling 모드 사용
+    bot.startPolling();
+    bot.on('message', handleTelegramMessage);
+    console.log('✅ 개발 모드 - Polling 활성화');
+  }
 });
 
 // 에러 핸들링
